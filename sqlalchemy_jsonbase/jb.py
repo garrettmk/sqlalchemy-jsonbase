@@ -80,7 +80,7 @@ class RelationshipField(mm.fields.Field):
             return [dump(i) for i in value.limit(self.query_limit).all()]
         elif isinstance(value, (list, sa.orm.collections.InstrumentedList)):
             return [dump(i) for i in value]
-        elif isinstance(value, SchemaMixin):
+        elif isinstance(value, JsonMixin):
             return dump(value)
         else:
             raise TypeError(f'Expected list, InstrumentedList, or SchemaMixin; got {type(value)}')
@@ -194,7 +194,7 @@ def _make_field(name, attr, opts):
 ########################################################################################################################
 
 
-class SchemaMetaMixin:
+class JsonMetaMixin:
     """A mixin for the database model metaclass that automatically generates a marshmallow schema when the class is
     created."""
 
@@ -219,7 +219,7 @@ class SchemaMetaMixin:
 ########################################################################################################################
 
 
-class SchemaMixin:
+class JsonMixin:
     """Adds behaviors like serializing an object to JSON, updating from JSON, and getting schema information."""
 
     def to_json(self, schema_attr='__schema__', **kwargs):
@@ -273,9 +273,9 @@ class SchemaMixin:
 ########################################################################################################################
 
 
-class BaseMeta(SchemaMetaMixin, DeclarativeMeta):
+class JsonBaseMeta(JsonMetaMixin, DeclarativeMeta):
     pass
 
 
-Base = declarative_base(cls=SchemaMixin, metaclass=BaseMeta)
+JsonBase = declarative_base(cls=JsonMixin, metaclass=JsonBaseMeta)
 
