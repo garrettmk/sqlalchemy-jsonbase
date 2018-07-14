@@ -155,7 +155,8 @@ FIELD_MAP = {
     dt.datetime: mm.fields.DateTime,
     dt.date: mm.fields.Date,
     sa.Column: _column_to_field,
-    hybrid_property: _hybrid_to_field
+    hybrid_property: _hybrid_to_field,
+    sa.orm.RelationshipProperty: RelationshipField
 }
 
 
