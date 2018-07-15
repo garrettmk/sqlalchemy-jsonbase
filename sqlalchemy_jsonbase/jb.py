@@ -1,3 +1,4 @@
+import types
 import inspect
 import collections
 import sqlalchemy as sa
@@ -7,6 +8,7 @@ import datetime as dt
 
 from sqlalchemy.ext.declarative import declarative_base, DeclarativeMeta
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy_utils import get_class_by_table, get_declarative_base
 from marshmallow_jsonschema import JSONSchema
 
 
@@ -27,7 +29,7 @@ class ViewSchema(mm.Schema):
             follow = original.get('_follow', [])
 
             for key, field in schema._declared_fields.items():
-                if key not in exclude and isinstance(field, RelationshipField):
+                if key not in exclude and isinstance(field, mm.fields.Nested) and hasattr(field, 'relationship_class'):
                     if key in only or key in follow or key in original:
                         continue
                     else:
@@ -56,34 +58,12 @@ class ViewSchema(mm.Schema):
 ########################################################################################################################
 
 
-class RelationshipField(mm.fields.Field):
-    """Serializes a model's SQLAlchemy relationships."""
+class NestedSchemaPatch:
+    def __get__(self, instance, owner):
+        return instance.__dict__['relationship_class'].__schema__
 
-    # The number of items to serialize for query-type relationships
-    query_limit = 10
 
-    def _serialize(self, value, attr, obj):
-        if value is None:
-            return None
-
-        try:
-            attr_ctx = self.context[attr]
-        except KeyError:
-            attr_ctx = {}
-
-        def dump(obj):
-            params = ViewSchema(context={'_exclude_rels': obj.__schema__}).dump(attr_ctx).data
-            schema = obj.__schema__(**params)
-            return schema.dump(obj).data
-
-        if isinstance(value, sa.orm.Query):
-            return [dump(i) for i in value.limit(self.query_limit).all()]
-        elif isinstance(value, (list, sa.orm.collections.InstrumentedList)):
-            return [dump(i) for i in value]
-        elif isinstance(value, JsonMixin):
-            return dump(value)
-        else:
-            raise TypeError(f'Expected list, InstrumentedList, or SchemaMixin; got {type(value)}')
+mm.fields.Nested.nested = NestedSchemaPatch()
 
 
 ########################################################################################################################
@@ -97,8 +77,20 @@ def column_default(col):
             return col.default.arg
 
 
-def _column_to_field(name, col, opts):
+def get_class_from_tablename(base, table):
+    for c in base._decl_class_registry.values():
+        if hasattr(c, '__tablename__') and c.__tablename__ == table:
+            return c
+    return None
+
+
+def _column_prop_to_field(cls, prop, name, opts):
     """Build a Field from a SQLAlchemy Column."""
+    if len(prop.columns) != 1:
+        raise ValueError(f'Unsupported number of columns: {prop.columns}')
+    else:
+        col = prop.columns[0]
+
     info = col.info
 
     if 'field' in info:
@@ -118,13 +110,25 @@ def _column_to_field(name, col, opts):
         'missing': column_default(col)
     }
 
+    foreign_keys = list(col.foreign_keys)
+    if len(foreign_keys) == 1:
+        fkey = foreign_keys[0]
+        table_name = fkey.target_fullname.split('.')[0]
+        decl_base = get_declarative_base(cls)
+        class_ = get_class_from_tablename(decl_base, table_name)
+        class_name = class_.__name__ if class_ else 'unknown'
+        options.update(foreign_key_class=class_name)
+    elif len(foreign_keys) > 1:
+        raise ValueError('Multiple foreign keys are not supported.')
+
     options.update(opts)
     options.update(info)
 
-    return field_type(**options)
+    field = field_type(**options)
+    return field
 
 
-def _hybrid_to_field(name, hybrid, opts):
+def _hybrid_to_field(cls, hybrid, name, opts):
     """Create a Field from a SQLAlchemy hybrid property."""
     info = hybrid.info
     field_type = info.get('field', None) or opts.get('field', None) or mm.fields.Raw
@@ -141,6 +145,37 @@ def _hybrid_to_field(name, hybrid, opts):
     return field_type(**opts)
 
 
+def _relationship_to_field(cls, rel, name, opts):
+    """Create a Field from a SQLAlchemy relationship attribute."""
+    options = dict(opts)
+    options.update(rel.info)
+
+    field = mm.fields.Nested(mm.Schema(), **options)
+    field.relationship_class = rel.argument()
+    del field.nested
+
+    return field
+
+
+def _instr_attr_to_field(cls, attr, name, opts):
+    field_type = FIELD_MAP.get(type(attr.prop), mm.fields.Raw)
+
+    if field_type is None:
+        return None
+
+    elif inspect.isclass(field_type) and issubclass(field_type, mm.fields.Field):
+        info = attr.info
+        options = dict(opts)
+        options.update(info)
+        return field_type(**options)
+
+    elif inspect.isfunction(field_type):
+        return field_type(cls, attr.prop, name, opts)
+
+    else:
+        raise TypeError(f'Unknown field type: {field_type}')
+
+
 ########################################################################################################################
 
 
@@ -154,18 +189,18 @@ FIELD_MAP = {
     bool: mm.fields.Boolean,
     dt.datetime: mm.fields.DateTime,
     dt.date: mm.fields.Date,
-    sa.Column: _column_to_field,
+    sa.orm.attributes.InstrumentedAttribute: _instr_attr_to_field,
+    sa.orm.ColumnProperty: _column_prop_to_field,
     hybrid_property: _hybrid_to_field,
-    sa.orm.RelationshipProperty: RelationshipField
+    sa.orm.RelationshipProperty: _relationship_to_field
 }
 
 
 ########################################################################################################################
 
 
-def _make_field(name, attr, opts):
+def _make_field(cls, attr, name, opts):
     """Create a Field for a given attribute."""
-    field_type = None
     field_opts = {k: v for k, v in opts.items() if k != 'field'} if isinstance(opts, dict) else {}
 
     # Shortcut cases where opts is None, an instance of a Field, or a Field subclass
@@ -187,34 +222,9 @@ def _make_field(name, attr, opts):
     if field_type is None:
         return None
     elif inspect.isfunction(field_type):
-        return field_type(name, attr, field_opts)
+        return field_type(cls, attr, name, field_opts)
     else:
         return field_type(**field_opts)
-
-
-########################################################################################################################
-
-
-class JsonMetaMixin:
-    """A mixin for the database model metaclass that automatically generates a marshmallow schema when the class is
-    created."""
-
-    def __init__(cls, name, bases, dict_):
-        super().__init__(name, bases, dict_)
-        schema_args = getattr(cls, '__schema_args__', {})
-
-        fields = {}
-        for attr_name, attr in dict_.items():
-            if attr_name.startswith('_'):
-                continue
-
-            field_args = schema_args.get(attr_name, {})
-            field = _make_field(attr_name, attr, field_args)
-            if field:
-                fields[attr_name] = field
-
-        BaseSchema = getattr(cls, '__schema__', mm.Schema)
-        cls.__schema__ = type(f'{cls.__name__}Schema', (BaseSchema,), fields)
 
 
 ########################################################################################################################
@@ -274,9 +284,28 @@ class JsonMixin:
 ########################################################################################################################
 
 
-class JsonBaseMeta(JsonMetaMixin, DeclarativeMeta):
-    pass
+JsonBase = declarative_base(cls=JsonMixin)
 
 
-JsonBase = declarative_base(cls=JsonMixin, metaclass=JsonBaseMeta)
+def all_subclasses(cls):
+    return cls.__subclasses__() + [g for s in cls.__subclasses__() for g in all_subclasses(s)]
 
+
+@sa.event.listens_for(sa.orm.mapper, 'after_configured')
+def build_schemas():
+    models = all_subclasses(JsonMixin)
+    for model in models:
+        schema_args = getattr(model, '__schema_args__', {})
+
+        fields = {}
+        for attr_name, attr in model.__dict__.items():
+            if attr_name.startswith('_'):
+                continue
+
+            field_args = schema_args.get(attr_name, {})
+            field = _make_field(model, attr, attr_name, field_args)
+            if field:
+                fields[attr_name] = field
+
+        BaseSchema = getattr(model, '__schema__', mm.Schema)
+        model.__schema__ = type(f'{model.__name__}', (BaseSchema,), fields)

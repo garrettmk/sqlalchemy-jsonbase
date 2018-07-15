@@ -1,10 +1,8 @@
-from .jb import ViewSchema, RelationshipField, FIELD_MAP, JsonMetaMixin, JsonMixin, JsonBase
+from .jb import ViewSchema, FIELD_MAP, JsonMixin, JsonBase
 
 __all__ = [
     'ViewSchema',
-    'RelationshipField',
     'FIELD_MAP',
-    'JsonMetaMixin',
     'JsonMixin',
     'JsonBase'
 ]
