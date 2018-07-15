@@ -86,11 +86,7 @@ def get_class_from_tablename(base, table):
 
 def _column_prop_to_field(cls, prop, name, opts):
     """Build a Field from a SQLAlchemy Column."""
-    if len(prop.columns) != 1:
-        raise ValueError(f'Unsupported number of columns: {prop.columns}')
-    else:
-        col = prop.columns[0]
-
+    col = prop.columns[0]
     info = col.info
 
     if 'field' in info:
