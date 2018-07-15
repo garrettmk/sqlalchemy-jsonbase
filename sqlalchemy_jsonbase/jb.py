@@ -1,4 +1,3 @@
-import types
 import inspect
 import collections
 import sqlalchemy as sa
@@ -29,7 +28,7 @@ class ViewSchema(mm.Schema):
             follow = original.get('_follow', [])
 
             for key, field in schema._declared_fields.items():
-                if key not in exclude and isinstance(field, mm.fields.Nested) and hasattr(field, 'relationship_class'):
+                if key not in exclude and isinstance(field, mm.fields.Nested) and hasattr(field, 'related_class'):
                     if key in only or key in follow or key in original:
                         continue
                     else:
@@ -60,7 +59,11 @@ class ViewSchema(mm.Schema):
 
 class NestedSchemaPatch:
     def __get__(self, instance, owner):
-        return instance.__dict__['relationship_class'].__schema__
+        rel_schema = instance.related_class.__schema__
+        instance.nested = rel_schema
+        params = ViewSchema(context={'_exclude_rels': rel_schema}).dump({}).data
+        instance.exclude = params['exclude']
+        return instance.nested
 
 
 mm.fields.Nested.nested = NestedSchemaPatch()
@@ -146,8 +149,11 @@ def _relationship_to_field(cls, rel, name, opts):
     options = dict(opts)
     options.update(rel.info)
 
+    if rel.uselist:
+        options.update(many=True)
+
     field = mm.fields.Nested(mm.Schema(), **options)
-    field.relationship_class = rel.argument()
+    field.related_class = rel.argument()
     del field.nested
 
     return field
