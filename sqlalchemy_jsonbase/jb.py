@@ -246,7 +246,7 @@ class JsonMixin:
     def json_schema(cls, schema_attr='__schema__', **kwargs):
         """Return a JSON schema for the model's schema."""
         schema_cls = getattr(cls, schema_attr)
-        params = ViewSchema().dump(kwargs).data
+        params = ViewSchema(context={'_exclude_rels': schema_cls}).dump(kwargs).data
         return JSONSchema().dump(schema_cls(**params)).data
 
     @classmethod
