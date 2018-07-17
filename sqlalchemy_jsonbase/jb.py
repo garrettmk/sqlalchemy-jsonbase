@@ -1,4 +1,3 @@
-import types
 import inspect
 import collections
 import sqlalchemy as sa
