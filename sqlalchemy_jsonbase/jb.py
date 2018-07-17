@@ -169,7 +169,7 @@ def _relationship_to_field(cls, rel, name, opts):
     if rel.uselist:
         options.update(many=True)
 
-    rel_class = rel.argument().__name__
+    rel_class = rel.argument.arg
     field = mm.fields.Nested(rel_class, **options)  # Schema has the same name as the class
     field.related_class = rel_class
 
