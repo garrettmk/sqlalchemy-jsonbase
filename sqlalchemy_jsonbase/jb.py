@@ -1,42 +1,78 @@
+import types
 import inspect
 import collections
 import sqlalchemy as sa
 import marshmallow as mm
+import marshmallow_jsonschema as mmjs
 import decimal as dec
 import datetime as dt
 
 from sqlalchemy.ext.declarative import declarative_base, DeclarativeMeta
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy_utils import get_declarative_base
-from marshmallow_jsonschema import JSONSchema
 
 
 ########################################################################################################################
 
 
-class _JSONSchema(JSONSchema):
-    """Customized behavior for Nested fields."""
+old_get_schema = mmjs.JSONSchema._get_schema_for_field
+old_from_nested = mmjs.JSONSchema._from_nested_schema
 
-    def _get_schema_for_field(self, obj, field):
-        schema = super()._get_schema_for_field(obj, field)
-        fkey = getattr(field, 'foreign_class', None)
-        if fkey:
-            schema['idtype'] = fkey()
-        return schema
 
-    def _from_nested_schema(self, obj, field):
-        name = field.name
-        follow = obj.context.get('_follow', [])
+def fix_refs(root_schema, uri_prefix=''):
+    """Convert foreign $refs to local, and local to foreign, based on the contents of the root_schema's definitions."""
+    root_name = root_schema['$ref'].split('/')[-1]
+    definitions = root_schema['definitions'].keys()
 
-        if name in follow or name in self.context:
-            result = super()._from_nested_schema(obj, field)
-            result.pop('many', None)
-            return result
+    def schema_uri(class_name):
+        if class_name in definitions or class_name == root_name:
+            return f'#/definitions/{class_name}'
+        else:
+            return f'{uri_prefix}{class_name}#/definitions/{class_name}'
 
+    def _fix(doc):
+        for key, value in doc.items():
+            if key == '$ref':
+                doc[key] = schema_uri(value.split('/')[-1])
+            elif isinstance(value, dict):
+                doc[key] = _fix(value)
+        return doc
+
+    for name, schema in root_schema['definitions'].items():
+        _fix(schema)
+
+    return root_schema
+
+
+def _get_schema_for_field(self, obj, field):
+    """Patches JSONSchema's _get_schema_for_field method."""
+    schema = old_get_schema(self, obj, field)
+    fkey = getattr(field, 'foreign_class', None)
+    if fkey:
+        schema['idtype'] = fkey()
+
+    return schema
+
+
+def _from_nested_schema(self, obj, field):
+    """Patches JSONSchema's _from_nested_schema method."""
+    name = field.name
+    rel_class = getattr(field, 'related_class', None)
+    follow = obj.context.get('_follow', [])
+
+    if name in follow or name in self.context:
+        result = old_from_nested(self, obj, field)
+        result.pop('many', None)
+        return result
+    else:
         return {
-            '$ref': f'{field.related_class}#/definitions/{field.related_class}',
+            '$ref': f'{rel_class}#/definitions/{rel_class}',
             'type': 'object'
         }
+
+
+mmjs.JSONSchema._get_schema_for_field = _get_schema_for_field
+mmjs.JSONSchema._from_nested_schema = _from_nested_schema
 
 
 ########################################################################################################################
@@ -86,6 +122,7 @@ class ViewSchema(mm.Schema):
 
 
 def column_default(col):
+    """Return the default value for a column."""
     if col.default:
         if col.default.is_callable:
             return lambda: col.default.arg({})
@@ -94,6 +131,7 @@ def column_default(col):
 
 
 def get_class_from_tablename(base, table):
+    """Return the class mapped to a particular table name, or None."""
     for c in base._decl_class_registry.values():
         if hasattr(c, '__tablename__') and c.__tablename__ == table:
             return c
@@ -161,6 +199,15 @@ def _hybrid_to_field(cls, hybrid, name, opts):
     return field_type(**opts)
 
 
+def _serialize_relationship(self, value, attr, obj):
+    """Patches mm.fields.Nested's _serialize method. Used on Nested fields that correspond to SQLAlchemy relationships.
+    """
+    if isinstance(value, sa.orm.Query):
+        value = value.all()
+
+    return mm.fields.Nested._serialize(self, value, attr, obj)
+
+
 def _relationship_to_field(cls, rel, name, opts):
     """Create a Field from a SQLAlchemy relationship attribute."""
     options = dict(opts)
@@ -172,6 +219,7 @@ def _relationship_to_field(cls, rel, name, opts):
     rel_class = rel.argument.arg
     field = mm.fields.Nested(rel_class, **options)  # Schema has the same name as the class
     field.related_class = rel_class
+    field._serialize = types.MethodType(_serialize_relationship, field)
 
     return field
 
@@ -269,7 +317,8 @@ class JsonMixin:
         """Return a JSON schema for the model's schema."""
         schema_cls = getattr(cls, schema_attr)
         params = ViewSchema().dump(kwargs).data
-        return _JSONSchema().dump(schema_cls(**params)).data
+        js_schema = mmjs.JSONSchema().dump(schema_cls(**params)).data
+        return fix_refs(js_schema)
 
     @classmethod
     def validate(cls, data, partial=False):
