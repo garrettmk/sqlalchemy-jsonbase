@@ -205,7 +205,21 @@ def _serialize_relationship(self, value, attr, obj):
     if isinstance(value, sa.orm.Query):
         value = value.all()
 
+    attr_ctx = self.context.get(attr, {})
+    related_class = mm.class_registry.get_class(self.related_class)
+    params = ViewSchema(context={'_exclude_rels': related_class}).dump(attr_ctx).data
+    self.only = params['only']
+    self.exclude = params['exclude']
+    self.schema.context = attr_ctx
+
     return mm.fields.Nested._serialize(self, value, attr, obj)
+
+
+def _deepcopy_patch(self, memo):
+    """Patches __deepcopy__ on Nested fields."""
+    new = super(mm.fields.Nested, self).__deepcopy__(memo)
+    new._serialize = types.MethodType(_serialize_relationship, new)
+    return new
 
 
 def _relationship_to_field(cls, rel, name, opts):
@@ -220,6 +234,7 @@ def _relationship_to_field(cls, rel, name, opts):
     field = mm.fields.Nested(rel_class, **options)  # Schema has the same name as the class
     field.related_class = rel_class
     field._serialize = types.MethodType(_serialize_relationship, field)
+    field.__deepcopy__ = types.MethodType(_deepcopy_patch, field)
 
     return field
 
