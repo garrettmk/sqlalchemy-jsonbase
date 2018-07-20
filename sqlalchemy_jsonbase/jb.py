@@ -60,7 +60,7 @@ def _from_nested_schema(self, obj, field):
     follow = self.context.get('_follow', [])
     rel_class = getattr(field, 'related_class', None)
     nested_ctx = self.context.get(field.name, {})
-    nested_params = ViewSchema().dump(nested_ctx).data
+    nested_params = ViewSchema().load(nested_ctx).data
 
     if field.name in follow or field.name in self.context:
         if isinstance(field.nested, str):
@@ -123,9 +123,9 @@ mmjs.JSONSchema._from_nested_schema = _from_nested_schema
 
 class ViewSchema(mm.Schema):
     """Schema for requesting data in JSON format."""
-    only = mm.fields.List(mm.fields.String(), attribute='_only', default=None)
-    exclude = mm.fields.Method('build_exclude', attribute='_exclude')
-    _follow = mm.fields.List(mm.fields.String(), attribute='_follow', default=list)
+    _only = mm.fields.List(mm.fields.String(), missing=None)
+    _exclude = mm.fields.Method('build_exclude', missing=list)
+    _follow = mm.fields.List(mm.fields.String(), missing=list)
 
     def build_exclude(self, original):
         schema = self.context.get('_exclude_rels', None)
@@ -145,14 +145,14 @@ class ViewSchema(mm.Schema):
         orig = original.get('_exclude', [])
         return [orig] if isinstance(orig, str) else orig
 
-    @mm.post_dump(pass_original=True)
+    @mm.post_load(pass_original=True)
     def final(self, data, original):
         data = dict(data)
         original = dict(original)
 
         result = {
-            'only': data.pop('only'),
-            'exclude': data.pop('exclude'),
+            'only': data.pop('_only'),
+            'exclude': data.pop('_exclude'),
             'context': {
                 **data,
                 **{k: v for k, v in original.items() if k not in ('_only', '_exclude') and k not in data}
@@ -250,7 +250,7 @@ def _serialize_relationship(self, value, attr, obj):
 
     attr_ctx = self.context.get(attr, {})
     related_class = mm.class_registry.get_class(self.related_class)
-    params = ViewSchema(context={'_exclude_rels': related_class}).dump(attr_ctx).data
+    params = ViewSchema(context={'_exclude_rels': related_class}).load(attr_ctx).data
     self.only = params['only']
     self.exclude = params['exclude']
     self.schema.context = attr_ctx
@@ -366,7 +366,7 @@ class JsonMixin:
     def to_json(self, schema_attr='__schema__', **kwargs):
         """Serialize the model."""
         schema_cls = getattr(self, schema_attr)
-        params = ViewSchema(context={'_exclude_rels': schema_cls}).dump(kwargs).data
+        params = ViewSchema(context={'_exclude_rels': schema_cls}).load(kwargs).data
         schema = schema_cls(**params)
         return schema.dump(self).data
 
@@ -374,7 +374,7 @@ class JsonMixin:
     def json_schema(cls, schema_attr='__schema__', **kwargs):
         """Return a JSON schema for the model's schema."""
         schema_cls = getattr(cls, schema_attr)
-        params = ViewSchema().dump(kwargs).data
+        params = ViewSchema().load(kwargs).data
         js_schema = mmjs.JSONSchema(context=params['context']).dump(schema_cls()).data
         return fix_refs(js_schema)
 
