@@ -56,19 +56,62 @@ def _get_schema_for_field(self, obj, field):
 
 def _from_nested_schema(self, obj, field):
     """Patches JSONSchema's _from_nested_schema method."""
-    name = field.name
-    rel_class = getattr(field, 'related_class', None)
-    follow = obj.context.get('_follow', [])
 
-    if name in follow or name in self.context:
-        result = old_from_nested(self, obj, field)
-        result.pop('many', None)
-        return result
+    follow = self.context.get('_follow', [])
+    rel_class = getattr(field, 'related_class', None)
+    nested_ctx = self.context.get(field.name, {})
+    nested_params = ViewSchema().dump(nested_ctx).data
+
+    if field.name in follow or field.name in self.context:
+        if isinstance(field.nested, str):
+            nested = mm.class_registry.get_class(field.nested)
+        else:
+            nested = field.nested
+
+        name = nested.__name__
+        outer_name = obj.__class__.__name__
+        only = nested_params['only']
+        exclude = nested_params['exclude']
+
+        # If this is not a schema we've seen, and it's not this schema,
+        # put it in our list of schema defs
+        if name not in self._nested_schema_classes and name != outer_name:
+            wrapped_nested = mmjs.JSONSchema(nested=True)
+            wrapped_dumped = wrapped_nested.dump(
+                nested(only=only, exclude=exclude)
+            )
+            self._nested_schema_classes[name] = wrapped_dumped.data
+            self._nested_schema_classes.update(
+                wrapped_nested._nested_schema_classes
+            )
+
+        # and the schema is just a reference to the def
+        schema = {
+            'type': 'object',
+            '$ref': '#/definitions/{}'.format(name)
+        }
     else:
-        return {
+        schema = {
             '$ref': f'{rel_class}#/definitions/{rel_class}',
             'type': 'object'
         }
+
+    # NOTE: doubled up to maintain backwards compatibility
+    metadata = field.metadata.get('metadata', {})
+    metadata.update(field.metadata)
+
+    for md_key, md_val in metadata.items():
+        if md_key == 'metadata':
+            continue
+        schema[md_key] = md_val
+
+    if field.many:
+        schema = {
+            'type': ["array"] if field.required else ['array', 'null'],
+            'items': schema,
+        }
+
+    return schema
 
 
 mmjs.JSONSchema._get_schema_for_field = _get_schema_for_field
@@ -332,7 +375,7 @@ class JsonMixin:
         """Return a JSON schema for the model's schema."""
         schema_cls = getattr(cls, schema_attr)
         params = ViewSchema().dump(kwargs).data
-        js_schema = mmjs.JSONSchema().dump(schema_cls(**params)).data
+        js_schema = mmjs.JSONSchema(**params).dump(schema_cls()).data
         return fix_refs(js_schema)
 
     @classmethod
