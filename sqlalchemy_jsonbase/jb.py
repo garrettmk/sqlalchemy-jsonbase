@@ -375,7 +375,7 @@ class JsonMixin:
         """Return a JSON schema for the model's schema."""
         schema_cls = getattr(cls, schema_attr)
         params = ViewSchema().dump(kwargs).data
-        js_schema = mmjs.JSONSchema(**params).dump(schema_cls()).data
+        js_schema = mmjs.JSONSchema(context=params['context']).dump(schema_cls()).data
         return fix_refs(js_schema)
 
     @classmethod
