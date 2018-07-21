@@ -124,7 +124,7 @@ mmjs.JSONSchema._from_nested_schema = _from_nested_schema
 class ViewSchema(mm.Schema):
     """Schema for requesting data in JSON format."""
     _only = mm.fields.List(mm.fields.String(), missing=None)
-    _exclude = mm.fields.Method('build_exclude', missing=list)
+    _exclude = mm.fields.List(mm.fields.String(), missing=list)
     _follow = mm.fields.List(mm.fields.String(), missing=list)
 
     def build_exclude(self, original):
@@ -149,10 +149,12 @@ class ViewSchema(mm.Schema):
     def final(self, data, original):
         data = dict(data)
         original = dict(original)
+        exclude = self.build_exclude(original)
+        data.pop('_exclude', None)
 
         result = {
             'only': data.pop('_only'),
-            'exclude': data.pop('_exclude'),
+            'exclude': exclude,
             'context': {
                 **data,
                 **{k: v for k, v in original.items() if k not in ('_only', '_exclude') and k not in data}
