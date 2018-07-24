@@ -391,7 +391,7 @@ class JsonMixin:
         else:
             params = ViewSchema().load(kwargs).data
 
-        js_schema = mmjs.JSONSchema(context=params['context']).dump(schema_cls()).data
+        js_schema = mmjs.JSONSchema(context=params['context']).dump(schema_cls(**params)).data
         return fix_refs(js_schema)
 
     @classmethod
