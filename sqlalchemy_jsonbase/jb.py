@@ -365,18 +365,32 @@ class JsonMetaMixin:
 class JsonMixin:
     """Adds behaviors like serializing an object to JSON, updating from JSON, and getting schema information."""
 
-    def to_json(self, schema_attr='__schema__', **kwargs):
+    def to_json(self, *args, schema_attr='__schema__', **kwargs):
         """Serialize the model."""
         schema_cls = getattr(self, schema_attr)
-        params = ViewSchema(context={'_exclude_rels': schema_cls}).load(kwargs).data
+
+        if len(args) == 1 and isinstance(args[0], dict):
+            params = args[0]
+        elif args:
+            raise ValueError(f'Only valid arg is a dict, got {args}')
+        else:
+            params = ViewSchema(context={'_exclude_rels': schema_cls}).load(kwargs).data
+
         schema = schema_cls(**params)
         return schema.dump(self).data
 
     @classmethod
-    def json_schema(cls, schema_attr='__schema__', **kwargs):
+    def json_schema(cls, *args, schema_attr='__schema__', **kwargs):
         """Return a JSON schema for the model's schema."""
         schema_cls = getattr(cls, schema_attr)
-        params = ViewSchema().load(kwargs).data
+
+        if len(args) == 1 and isinstance(args[0], dict):
+            params = args[0]
+        elif args:
+            raise ValueError(f'Only valid arg is a dict, got {args}')
+        else:
+            params = ViewSchema().load(kwargs).data
+
         js_schema = mmjs.JSONSchema(context=params['context']).dump(schema_cls()).data
         return fix_refs(js_schema)
 
