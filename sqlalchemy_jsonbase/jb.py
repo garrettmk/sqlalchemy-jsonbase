@@ -343,7 +343,9 @@ class JsonMetaMixin:
 
     def __init__(cls, name, bases, dict_):
         super().__init__(name, bases, dict_)
-        schema_args = getattr(cls, '__schema_args__', {})
+        base_args = getattr(super(cls, cls), '__schema_args__', {})
+        these_args = getattr(cls, '__schema_args__', {})
+        schema_args = {**base_args, **these_args}
 
         fields = {}
         for attr_name, attr in dict_.items():
@@ -357,6 +359,7 @@ class JsonMetaMixin:
 
         BaseSchema = getattr(cls, '__schema__', mm.Schema)
         cls.__schema__ = type(f'{cls.__name__}', (BaseSchema,), fields)
+        cls.__schema_args__ = schema_args
 
 
 ########################################################################################################################
