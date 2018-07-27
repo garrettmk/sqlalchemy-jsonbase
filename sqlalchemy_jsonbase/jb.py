@@ -368,9 +368,9 @@ class JsonMetaMixin:
 class JsonMixin:
     """Adds behaviors like serializing an object to JSON, updating from JSON, and getting schema information."""
 
-    def to_json(self, *args, schema_attr='__schema__', **kwargs):
+    def to_json(self, *args, _schema='__schema__', **kwargs):
         """Serialize the model."""
-        schema_cls = getattr(self, schema_attr)
+        schema_cls = getattr(self, _schema)
 
         if len(args) == 1 and isinstance(args[0], dict):
             params = args[0]
@@ -383,9 +383,9 @@ class JsonMixin:
         return schema.dump(self).data
 
     @classmethod
-    def json_schema(cls, *args, schema_attr='__schema__', **kwargs):
+    def json_schema(cls, *args, _schema='__schema__', **kwargs):
         """Return a JSON schema for the model's schema."""
-        schema_cls = getattr(cls, schema_attr)
+        schema_cls = getattr(cls, _schema)
 
         if len(args) == 1 and isinstance(args[0], dict):
             params = args[0]
