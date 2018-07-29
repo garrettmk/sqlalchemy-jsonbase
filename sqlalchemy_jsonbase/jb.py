@@ -8,7 +8,6 @@ import decimal as dec
 import datetime as dt
 
 from sqlalchemy.ext.declarative import declarative_base, DeclarativeMeta
-from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy_utils import get_declarative_base
 
 
@@ -230,7 +229,7 @@ def _column_to_field(cls, col, name, opts):
 def _hybrid_to_field(cls, hybrid, name, opts):
     """Create a Field from a SQLAlchemy hybrid property."""
     info = hybrid.info
-    field_type = info.get('field', None) or opts.get('field', None) or mm.fields.Raw
+    field_type = info.pop('field', None) or opts.pop('field', None) or mm.fields.Raw
     if isinstance(field_type, (type(None), mm.fields.Field)):
         return field_type
 
@@ -241,7 +240,7 @@ def _hybrid_to_field(cls, hybrid, name, opts):
     options.update(opts)
     options.update(info)
 
-    return field_type(**opts)
+    return field_type(**options)
 
 
 def _serialize_relationship(self, value, attr, obj):
@@ -298,7 +297,7 @@ FIELD_MAP = {
     dt.datetime: mm.fields.DateTime,
     dt.date: mm.fields.Date,
     sa.Column: _column_to_field,
-    hybrid_property: _hybrid_to_field,
+    sa.ext.hybrid.hybrid_property: _hybrid_to_field,
     sa.orm.RelationshipProperty: _relationship_to_field
 }
 
@@ -439,3 +438,47 @@ class JsonBaseMeta(JsonMetaMixin, DeclarativeMeta):
 
 
 JsonBase = declarative_base(cls=JsonMixin, metaclass=JsonBaseMeta)
+
+
+########################################################################################################################
+
+
+def _annotate_info(fn, *args, **kwargs):
+    """Shortcut method for declaring columns with schema annotations."""
+    field_keys = ('label', 'format', 'missing', 'validate', 'field')
+    field_kwargs = {key: kwargs.pop(key) for key in field_keys if key in kwargs}
+
+    if 'label' in field_kwargs:
+        field_kwargs['name'] = field_kwargs.pop('label')
+
+    info = {
+        **kwargs.pop('info', {}),
+        **field_kwargs,
+    }
+
+    return fn(*args, info=info, **kwargs)
+
+
+def Column(*args, **kwargs):
+    """Create a column with schema annotations."""
+    return _annotate_info(sa.Column, *args, **kwargs)
+
+
+def relationship(*args, **kwargs):
+    """Create a relationship with schema annotations."""
+    return _annotate_info(sa.orm.relationship, *args, **kwargs)
+
+
+def hybrid_property(*args, **kwargs):
+    """Create a hybrid property with schema annotations."""
+
+    def _hybrid_prop(fn):
+
+        def _make_hybrid(*args, info={}, **kwargs):
+            hyb = sa.ext.hybrid.hybrid_property(fn, *args, **kwargs)
+            hyb.info = info
+            return hyb
+
+        return _annotate_info(_make_hybrid, *args, **kwargs)
+
+    return _hybrid_prop
