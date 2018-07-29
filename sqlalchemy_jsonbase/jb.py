@@ -449,7 +449,7 @@ def _annotate_info(fn, *args, **kwargs):
     field_kwargs = {key: kwargs.pop(key) for key in field_keys if key in kwargs}
 
     if 'label' in field_kwargs:
-        field_kwargs['name'] = field_kwargs.pop('label')
+        field_kwargs['title'] = field_kwargs.pop('label')
 
     info = {
         **kwargs.pop('info', {}),
