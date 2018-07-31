@@ -421,7 +421,7 @@ class JsonMixin:
         else:
             data = kwargs
 
-        loaded = self.__schema__().load(data).data
+        loaded = self.__schema__().load(data, partial=True).data
         extra = {k: v for k, v in data.items() if k not in loaded}
 
         for key, value in loaded.items():
