@@ -14,6 +14,27 @@ from sqlalchemy_utils import get_declarative_base
 ########################################################################################################################
 
 
+class jb_property(property):
+    """An annotated property."""
+
+    def __init__(self, *args, **kwargs):
+        field_keys = ('label', 'format', 'missing', 'validate', 'field')
+        field_kwargs = {key: kwargs.pop(key) for key in field_keys if key in kwargs}
+
+        if 'label' in field_kwargs:
+            field_kwargs['title'] = field_kwargs.pop('label')
+
+        super().__init__(*args, **kwargs)
+
+        self.info = {
+            **kwargs.pop('info', {}),
+            **field_kwargs,
+        }
+
+
+########################################################################################################################
+
+
 old_get_schema = mmjs.JSONSchema._get_schema_for_field
 old_from_nested = mmjs.JSONSchema._from_nested_schema
 
@@ -298,7 +319,8 @@ FIELD_MAP = {
     dt.date: mm.fields.Date,
     sa.Column: _column_to_field,
     sa.ext.hybrid.hybrid_property: _hybrid_to_field,
-    sa.orm.RelationshipProperty: _relationship_to_field
+    sa.orm.RelationshipProperty: _relationship_to_field,
+    jb_property: _hybrid_to_field
 }
 
 
@@ -484,16 +506,3 @@ def hybrid_property(*args, **kwargs):
     return _hybrid_prop
 
 
-def property(*args, **kwargs):
-    """Create a regular property with schema annotations."""
-
-    def _property(fn):
-
-        def _make_property(*args, info={}, **kwargs):
-            prop = property(fn, *args, **kwargs)
-            prop.info = info
-            return prop
-
-        return _annotate_info(_make_property, *args, **kwargs)
-
-    return _property
