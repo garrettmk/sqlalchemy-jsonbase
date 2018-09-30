@@ -1,4 +1,4 @@
-from .jb import ViewSchema, FIELD_MAP, JsonMetaMixin, JsonMixin, JsonBase, Column, relationship, hybrid_property
+from .jb import ViewSchema, FIELD_MAP, JsonMetaMixin, JsonMixin, JsonBase, Column, relationship, hybrid_property, property
 
 __all__ = [
     'ViewSchema',
@@ -8,5 +8,6 @@ __all__ = [
     'JsonBase',
     'Column',
     'relationship',
-    'hybrid_property'
+    'hybrid_property',
+    'property'
 ]
