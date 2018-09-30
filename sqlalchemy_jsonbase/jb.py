@@ -49,12 +49,15 @@ class jb_property:
 
     def getter(self, fn):
         self.fget = fn
+        return self
 
     def setter(self, fn):
         self.fset = fn
+        return self
 
     def deleter(self, fn):
         self.fdel = fn
+        return self
 
 
 ########################################################################################################################
