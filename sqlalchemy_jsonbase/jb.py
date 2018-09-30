@@ -18,9 +18,9 @@ class jb_property:
     """An annotated property."""
 
     def __init__(self, fget=None, fset=None, fdel=None, doc=None, **kwargs):
-        self.getter = fget
-        self.setter = fset
-        self.deleter = fdel
+        self.fget = fget
+        self.fset = fset
+        self.fdel = fdel
         self.__doc__ = doc
 
         field_keys = ('label', 'format', 'missing', 'validate', 'field')
@@ -39,13 +39,22 @@ class jb_property:
         return self
 
     def __get__(self, instance, owner):
-        return self.getter(instance)
+        return self.fget(instance)
 
     def __set__(self, instance, value):
-        return self.setter(instance, value)
+        return self.fset(instance, value)
 
     def __delete__(self, instance):
-        return self.deleter(instance)
+        return self.fdel(instance)
+
+    def getter(self, fn):
+        self.fget = fn
+
+    def setter(self, fn):
+        self.fset = fn
+
+    def deleter(self, fn):
+        self.fdel = fn
 
 
 ########################################################################################################################
