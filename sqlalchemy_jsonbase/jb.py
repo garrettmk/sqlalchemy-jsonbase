@@ -14,22 +14,38 @@ from sqlalchemy_utils import get_declarative_base
 ########################################################################################################################
 
 
-class jb_property(property):
+class jb_property:
     """An annotated property."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, fget=None, fset=None, fdel=None, doc=None, **kwargs):
+        self.getter = fget
+        self.setter = fset
+        self.deleter = fdel
+        self.__doc__ = doc
+
         field_keys = ('label', 'format', 'missing', 'validate', 'field')
         field_kwargs = {key: kwargs.pop(key) for key in field_keys if key in kwargs}
 
         if 'label' in field_kwargs:
             field_kwargs['title'] = field_kwargs.pop('label')
 
-        super().__init__(*args, **kwargs)
-
         self.info = {
             **kwargs.pop('info', {}),
             **field_kwargs,
         }
+
+    def __call__(self, fn):
+        self.getter = fn
+        return self
+
+    def __get__(self, instance, owner):
+        return self.getter(instance)
+
+    def __set__(self, instance, value):
+        return self.setter(instance, value)
+
+    def __delete__(self, instance):
+        return self.deleter(instance)
 
 
 ########################################################################################################################
@@ -264,6 +280,23 @@ def _hybrid_to_field(cls, hybrid, name, opts):
     return field_type(**options)
 
 
+def _prop_to_field(cls, prop, name, opts):
+    """Create a field from a jb_property."""
+    info = prop.info
+    field_type = info.pop('field', None) or opts.pop('field', None) or mm.fields.Raw
+    if isinstance(field_type, (type(None), mm.fields.Field)):
+        return field_type
+
+    options = {
+        'dump_only': prop.setter is None
+    }
+
+    options.update(opts)
+    options.update(info)
+
+    return field_type(**options)
+
+
 def _serialize_relationship(self, value, attr, obj):
     """Patches mm.fields.Nested's _serialize method. Used on Nested fields that correspond to SQLAlchemy relationships.
     """
@@ -320,7 +353,7 @@ FIELD_MAP = {
     sa.Column: _column_to_field,
     sa.ext.hybrid.hybrid_property: _hybrid_to_field,
     sa.orm.RelationshipProperty: _relationship_to_field,
-    jb_property: _hybrid_to_field
+    jb_property: _prop_to_field
 }
 
 
