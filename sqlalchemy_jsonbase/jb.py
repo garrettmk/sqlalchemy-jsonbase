@@ -35,7 +35,7 @@ class jb_property:
         }
 
     def __call__(self, fn):
-        self.getter = fn
+        self.fget = fn
         return self
 
     def __get__(self, instance, owner):
