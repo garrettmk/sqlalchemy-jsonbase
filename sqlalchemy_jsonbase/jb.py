@@ -482,3 +482,18 @@ def hybrid_property(*args, **kwargs):
         return _annotate_info(_make_hybrid, *args, **kwargs)
 
     return _hybrid_prop
+
+
+def property(*args, **kwargs):
+    """Create a regular property with schema annotations."""
+
+    def _property(fn):
+
+        def _make_property(*args, info={}, **kwargs):
+            prop = property(fn, *args, **kwargs)
+            prop.info = info
+            return prop
+
+        return _annotate_info(_make_property, *args, **kwargs)
+
+    return _property
